@@ -1167,53 +1167,88 @@ let data = [
 router.get('/', function (req, res, next) {
   let queries = req.query;
   let titleQ = queries.title ? queries.title : '';
-  let minPrice = queries.minPrice ? queries.minPrice : 0;
-  let maxPrice = queries.maxPrice ? queries.maxPrice : 1E6;
-  let page = queries.page ? queries.page : 1;
-  let limit = queries.limit ? queries.limit : 10;
+  let slugQ = queries.slug ? queries.slug : '';
+  let minPrice = queries.minPrice !== undefined ? Number(queries.minPrice) : 0;
+  let maxPrice = queries.maxPrice !== undefined ? Number(queries.maxPrice) : 1E6;
+  let page = queries.page !== undefined ? Number(queries.page) : 1;
+  let limit = queries.limit !== undefined ? Number(queries.limit) : 10;
+
+  // validate numeric params
+  if (Number.isNaN(minPrice) || Number.isNaN(maxPrice)) {
+    return res.status(400).send({ message: 'minPrice and maxPrice must be numbers' });
+  }
+  if (maxPrice < minPrice) {
+    return res.status(400).send({ message: 'maxPrice must be greater than or equal to minPrice' });
+  }
+  if (!Number.isInteger(page) || page < 1) {
+    return res.status(400).send({ message: 'page must be a positive integer' });
+  }
+  if (!Number.isInteger(limit) || limit < 1) {
+    return res.status(400).send({ message: 'limit must be a positive integer' });
+  }
+
   console.log(queries);
-  let result = data.filter(
-    function (e) {
-      return (!e.isDeleted) && e.title.includes(titleQ) &&
-        e.price >= minPrice && e.price <= maxPrice
+  let filtered = data.filter(function (e) {
+    if (e.isDeleted) return false;
+    if (slugQ) {
+      return e.slug && e.slug.toLowerCase() === String(slugQ).toLowerCase();
     }
-  );
-  result = result.splice(limit * (page - 1), limit)
+    return e.title.toLowerCase().includes(String(titleQ).toLowerCase()) &&
+      e.price >= minPrice && e.price <= maxPrice;
+  });
+
+  let start = limit * (page - 1);
+  let result = filtered.slice(start, start + limit);
   res.send(result);
 });
-//get by ID
+//get by ID or slug
 router.get('/:id', function (req, res, next) {
-  let result = data.find(
-    function (e) {
-      return e.id == req.params.id && (!e.isDeleted);
-    }
-  )
+  let param = req.params.id;
+  let result = data.find(function (e) {
+    if (e.isDeleted) return false;
+    if (String(e.id) === param) return true;
+    if (e.slug && e.slug.toLowerCase() === String(param).toLowerCase()) return true;
+    return false;
+  });
   if (result) {
     res.send(result);
   } else {
     res.status(404).send({
-      "message": "id not found"
+      "message": "id or slug not found"
     });
   }
 });
 
 
 router.post('/', function (req, res, next) {
+  const { title, price, description, category, images } = req.body;
+  let errors = [];
+  if (!title || !String(title).trim()) errors.push('title is required');
+  if (price === undefined || price === null || price === '') {
+    errors.push('price is required');
+  } else if (Number.isNaN(Number(price))) {
+    errors.push('price must be a number');
+  }
+  if (!description || !String(description).trim()) errors.push('description is required');
+  if (errors.length) {
+    return res.status(400).send({ message: 'Validation failed', errors });
+  }
+
+  let priceNum = Number(price);
   let newObj = {
-    id: (getMaxID(data) + 1) + '',
-    title: req.body.title,
-    slug: ConvertTitleToSlug(req.body.title),
-    price: req.body.price,
-    description: req.body.description,
-    category: req.body.category,
-    images: req.body.images,
-    creationAt: new Date(Date.now()),
-    updatedAt: new Date(Date.now())
+    id: getMaxID(data) + 1,
+    title: title,
+    slug: ConvertTitleToSlug(title),
+    price: priceNum,
+    description: description,
+    category: category,
+    images: images,
+    creationAt: new Date(),
+    updatedAt: new Date()
   }
   data.push(newObj);
-  console.log(data);
-  res.send(newObj);
-  //console.log(g);
+  console.log('New product added:', newObj);
+  res.status(201).send(newObj);
 })
 router.put('/:id', function (req, res, next) {
   let id = req.params.id;
